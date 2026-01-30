@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Optional, Set
 from dotenv import load_dotenv
 
-# Load environment variables FIRST before importing Opik
+# Load environment variables FIRST before importing Opik.
 load_dotenv()
 
 from supabase import create_client, Client
