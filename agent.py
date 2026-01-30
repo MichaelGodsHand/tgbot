@@ -2,11 +2,13 @@ import asyncio
 import os
 import re
 import sys
+import threading
 from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Optional, Set
 from dotenv import load_dotenv
 
-# Load environment variables FIRST before importing Opik.
+# Load environment variables FIRST before importing Opik
 load_dotenv()
 
 from supabase import create_client, Client
@@ -156,6 +158,39 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # Polling interval in seconds
 POLL_INTERVAL = 10
+
+# Health server port (for Render.com / external pings). Set PORT in env on Render.
+HEALTH_PORT = int(os.getenv("PORT", "8080"))
+
+
+class HealthHandler(BaseHTTPRequestHandler):
+    """Serves HEAD/GET / and /health with 200 OK for Render.com health checks."""
+
+    def _send_health(self, body: bool = True):
+        if self.path in ("/", "/health"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if body:
+                self.wfile.write(b'{"status":"ok"}')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_HEAD(self):
+        self._send_health(body=False)
+
+    def do_GET(self):
+        self._send_health(body=True)
+
+    def log_message(self, format, *args):
+        pass  # Suppress default request logging
+
+
+def run_health_server():
+    """Run a minimal HTTP server in a thread for health checks."""
+    server = HTTPServer(("0.0.0.0", HEALTH_PORT), HealthHandler)
+    server.serve_forever()
 
 # Track processed disasters to avoid duplicates
 processed_disasters: Set[str] = set()
@@ -1061,6 +1096,11 @@ if __name__ == "__main__":
         print("  OPENAI_API_KEY=your-openai-api-key")
         exit(1)
     
+    # Start health server in background (for Render.com / keep-alive pings)
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    print(f"Health endpoint: http://0.0.0.0:{HEALTH_PORT}/health")
+
     # Run the monitor
     try:
         asyncio.run(monitor_disasters())
